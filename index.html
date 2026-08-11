@@ -73,6 +73,7 @@ input.who{width:70px;background:var(--panel2);border:1px solid var(--line);color
 .mbtns button{flex:1;padding:12px;border-radius:10px;border:1px solid var(--line);
   background:var(--panel2);color:var(--text);font-weight:700;font-size:15px;cursor:pointer;}
 .mbtns button.primary{background:var(--accent);color:#08281f;border:none;}
+.mrow.inactive{opacity:.5;}
 @media (max-width:480px){ .card{grid-template-columns:1fr 1fr; } .card .namewrap{grid-column:1 / -1;} }
 </style>
 </head>
@@ -148,7 +149,7 @@ function api(path, opts){
 
 function load(){
   var q = [
-    api("pt_items?location=eq."+LOC+"&active=is.true&order=sort"),
+    api("pt_items?location=eq."+LOC+"&order=sort"),
     api("pt_learned_rates?select=*"),
     api("pt_forecasts?location=eq."+LOC+"&date=gte."+D0+"&date=lte."+D2),
     api("pt_daily_covers?location=eq."+LOC+"&date=gte."+D0+"&date=lte."+D2),
@@ -244,6 +245,7 @@ function render(){
   document.getElementById("covers").innerHTML = ch;
 
   var list = items.filter(function(it){
+    if(it.active===false) return false;
     return tab==="pull" ? (it.station==="thaw"||it.station==="both")
                         : (it.station==="prep"||it.station==="both");
   });
@@ -313,13 +315,13 @@ function mrow(it,i){
   var st = '<div><label>Station</label><select data-i="'+i+'" data-f="station">'+
     ['prep','thaw','both'].map(function(s){return '<option value="'+s+'"'+(it.station===s?' selected="selected"':'')+'>'+s+'</option>';}).join('')+
     '</select></div>';
-  var thawItems = edits.filter(function(x){ return (x.station==='thaw'||x.station==='both') && x.id && x.id!==it.id; });
+  var thawItems = edits.filter(function(x){ return (x.station==='thaw'||x.station==='both') && x.id && x.id!==it.id && x.name && String(x.name).trim(); });
   var par = '<div><label>Draws from (thaw item)</label><select data-i="'+i+'" data-f="parent_id">'+
     '<option value="">— none —</option>'+
     thawItems.map(function(x){ return '<option value="'+x.id+'"'+(it.parent_id===x.id?' selected="selected"':'')+'>'+esc(x.name)+'</option>'; }).join('')+
     '</select></div>';
-  var act = '<div><label>Active</label><input type="checkbox" data-i="'+i+'" data-f="active"'+(it.active!==false?' checked="checked"':'')+'/></div>';
-  return '<div class="mrow">'+
+  var act = '<div><label>Active (unchecked = hidden from kitchen)</label><input type="checkbox" data-i="'+i+'" data-f="active"'+(it.active!==false?' checked="checked"':'')+'/></div>';
+  return '<div class="mrow'+(it.active===false?' inactive':'')+'">'+
     mfield('Name',i,'name',it.name)+
     mfield('Nombre (Spanish)',i,'name_es',it.name_es)+
     mfield('Category',i,'category',it.category,'Protein / Sides / Sauces')+
@@ -341,11 +343,15 @@ function renderManage(){
     el.addEventListener('change', function(){
       var i=parseInt(el.getAttribute('data-i'),10), f=el.getAttribute('data-f');
       edits[i][f] = (el.type==='checkbox') ? el.checked : (f==='parent_id' && el.value==='' ? null : el.value);
+      // station/name/active changes affect other rows' "Draws from" dropdowns — refresh the view
+      if(f==='station'||f==='active'||f==='name') renderManage();
     });
   });
   document.getElementById("mAdd").addEventListener('click', function(){
     var maxSort = edits.reduce(function(m,e){return Math.max(m, e.sort||0);}, 0);
-    edits.push({location:LOC, name:"", name_es:"", category:"", station:"prep",
+    var newId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() :
+      'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0;return (c==='x'?r:(r&0x3|0x8)).toString(16);});
+    edits.push({id:newId, _new:true, location:LOC, name:"", name_es:"", category:"", station:"prep",
                 unit_name:"", unit_lb:null, seed_rate_per_100:null, fixed_par:null,
                 parent_id:null, active:true, sort:maxSort+10, source:"manager"});
     renderManage();
