@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Bennett's — Pull &amp; Prep</title>
+<style>
+:root{
+  --bg:#101418; --panel:#1a2027; --panel2:#222a33; --line:#2e3946;
+  --text:#eef2f6; --dim:#93a1b0; --accent:#25c19b; --accentD:#0f8f70;
+  --amber:#e8a13a; --red:#e05d5d; --blue:#5b9bd5;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+body{padding-bottom:110px;}
+header{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1px solid var(--line);
+  padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+header h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.3px;}
+.badge{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:13px;color:var(--dim);}
+.spacer{flex:1;}
+button.langbtn, button.locbtn{background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  border-radius:8px;padding:8px 14px;font-size:14px;cursor:pointer;}
+input.who{width:70px;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  border-radius:8px;padding:8px;font-size:14px;text-align:center;}
+.covers{display:flex;gap:10px;padding:12px 14px;overflow-x:auto;}
+.cchip{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:110px;flex:1;}
+.cchip .lbl{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;}
+.cchip .dt{font-size:12px;color:var(--dim);}
+.cchip input{width:100%;background:transparent;border:none;border-bottom:1px dashed var(--line);
+  color:var(--text);font-size:26px;font-weight:700;text-align:center;padding:2px 0;}
+.cchip input:focus{outline:none;border-bottom-color:var(--accent);}
+.tabs{display:flex;gap:8px;padding:0 14px 10px;}
+.tab{flex:1;text-align:center;padding:12px;border-radius:12px;background:var(--panel);
+  border:1px solid var(--line);font-weight:700;font-size:15px;cursor:pointer;color:var(--dim);}
+.tab.active{background:var(--accentD);color:#fff;border-color:var(--accentD);}
+.hint{padding:0 16px 8px;color:var(--dim);font-size:13px;line-height:1.4;}
+.grp{margin:6px 14px 14px;}
+.grp h3{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px;margin:12px 2px 6px;}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px;
+  display:grid;grid-template-columns:1.3fr .8fr .8fr .9fr;gap:8px;align-items:center;}
+.card .name{font-weight:700;font-size:16px;}
+.card .sub{font-size:12px;color:var(--dim);margin-top:2px;}
+.rbadge{display:inline-block;font-size:10px;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:middle;}
+.rb-learned{background:#173c33;color:var(--accent);border:1px solid var(--accentD);}
+.rb-seed{background:#3a2f1a;color:var(--amber);border:1px solid #6e5620;}
+.rb-none{background:#3a1f1f;color:var(--red);border:1px solid #6e2c2c;}
+.cell{ text-align:center;}
+.cell .clbl{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px;}
+.cell input{width:100%;max-width:92px;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  border-radius:10px;padding:12px 6px;font-size:20px;font-weight:700;text-align:center;}
+.cell input:focus{outline:none;border-color:var(--accent);}
+.do{ text-align:center;background:var(--panel2);border-radius:12px;padding:8px 4px;border:1px solid var(--line);}
+.do .num{font-size:30px;font-weight:800;line-height:1;}
+.do .u{font-size:11px;color:var(--dim);}
+.do.zero .num{color:var(--dim);}
+.do.go .num{color:var(--accent);}
+.savebar{position:fixed;left:0;right:0;bottom:0;z-index:40;background:linear-gradient(transparent, var(--bg) 30%);
+  padding:14px;display:flex;gap:10px;align-items:center;}
+.savebar button{flex:1;background:var(--accent);border:none;color:#08281f;font-size:18px;font-weight:800;
+  padding:16px;border-radius:14px;cursor:pointer;}
+.savebar button:disabled{opacity:.5;}
+.savemsg{position:fixed;bottom:86px;left:0;right:0;text-align:center;font-size:14px;color:var(--accent);z-index:41;}
+.err{color:var(--red);}
+.loading{padding:40px;text-align:center;color:var(--dim);font-size:16px;}
+@media (max-width:480px){ .card{grid-template-columns:1fr 1fr; } .card .namewrap{grid-column:1 / -1;} }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="ttl">Bennett's Pull &amp; Prep</h1>
+  <span class="badge" id="locbadge">No. 1</span>
+  <span class="badge" id="datebadge"></span>
+  <span class="spacer"></span>
+  <input class="who" id="who" maxlength="6" placeholder="Init.">
+  <button class="langbtn" id="langbtn">ES</button>
+</header>
+
+<div class="covers" id="covers"></div>
+<div class="tabs">
+  <div class="tab active" id="tabPull"></div>
+  <div class="tab" id="tabPrep"></div>
+</div>
+<div class="hint" id="hint"></div>
+<div id="content" class="grp"><div class="loading" id="loadmsg">Loading…</div></div>
+
+<div class="savebar"><button id="savebtn"></button></div>
+<div class="savemsg" id="savemsg"></div>
+
+<script>
+var SB_URL = "https://yagdfrhyznunkzkbjewz.supabase.co";
+var SB_KEY = "sb_publishable_rVPD5FmpP5QRKHkqdDNwlQ_ER4PMWYZ";
+var LOC = (new URLSearchParams(location.search).get("loc")) || "no1";
+var LOCNAMES = {no1:"No. 1", no2:"No. 2"};
+
+var LANG = "en";
+var T = {
+  en:{pull:"PULL-THAW RACKS", prep:"PREP", today:"Today", tom:"Tomorrow", day2:"Day after",
+      onRack:"On racks now", onPrep:"Ready now", pullN:"PULL", prepN:"PREP", didPull:"Pulled", didPrep:"Made",
+      save:"SAVE COUNTS", saved:"Saved ✓", errSave:"Could not save — check wifi and try again.",
+      hintPull:"Count what is on the thaw racks now. PULL = what to move from the freezer to the racks today, sized to cover the next two days (24–36 h thaw).",
+      hintPrep:"Count what is prepped and ready now. PREP = what to make today for today's forecast.",
+      learned:"learned", seed:"seed", none:"no rate", covers:"covers", loading:"Loading…",
+      offline:"Cannot reach the server. Check wifi.", who:"Init."},
+  es:{pull:"PARRILLAS DE DESCONGELAR", prep:"PREPARACIÓN", today:"Hoy", tom:"Mañana", day2:"Pasado",
+      onRack:"En parrillas ahora", onPrep:"Listo ahora", pullN:"SACAR", prepN:"PREPARAR", didPull:"Sacado", didPrep:"Hecho",
+      save:"GUARDAR CONTEOS", saved:"Guardado ✓", errSave:"No se pudo guardar — revise el wifi e intente de nuevo.",
+      hintPull:"Cuente lo que hay en las parrillas ahora. SACAR = lo que hay que pasar del congelador a las parrillas hoy, para cubrir los próximos dos días (24–36 h de descongelado).",
+      hintPrep:"Cuente lo que ya está preparado. PREPARAR = lo que hay que hacer hoy para el pronóstico de hoy.",
+      learned:"aprendido", seed:"inicial", none:"sin tasa", covers:"clientes", loading:"Cargando…",
+      offline:"No hay conexión con el servidor. Revise el wifi.", who:"Inic."}
+};
+
+function etDate(offset){
+  var now = new Date();
+  var et = new Date(now.toLocaleString("en-US",{timeZone:"America/New_York"}));
+  et.setDate(et.getDate()+ (offset||0));
+  var y=et.getFullYear(), m=("0"+(et.getMonth()+1)).slice(-2), d=("0"+et.getDate()).slice(-2);
+  return y+"-"+m+"-"+d;
+}
+var D0=etDate(0), D1=etDate(1), D2=etDate(2);
+
+var items=[], rates={}, fc={}, dcov={}, counts={}, tab="pull";
+
+function api(path, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({
+    "apikey": SB_KEY, "Authorization": "Bearer "+SB_KEY,
+    "Content-Type":"application/json"
+  }, opts.headers||{});
+  return fetch(SB_URL+"/rest/v1/"+path, opts).then(function(r){
+    if(!r.ok) return r.text().then(function(t){ throw new Error(r.status+" "+t); });
+    return r.status===204 ? null : r.json();
+  });
+}
+
+function load(){
+  var q = [
+    api("pt_items?location=eq."+LOC+"&active=is.true&order=sort"),
+    api("pt_learned_rates?select=*"),
+    api("pt_forecasts?location=eq."+LOC+"&date=gte."+D0+"&date=lte."+D2),
+    api("pt_daily_covers?location=eq."+LOC+"&date=gte."+D0+"&date=lte."+D2),
+    api("pt_daily_counts?location=eq."+LOC+"&date=eq."+D0)
+  ];
+  return Promise.all(q).then(function(res){
+    items = res[0];
+    res[1].forEach(function(r){ rates[r.item_id]={n:r.n, rate:parseFloat(r.learned_rate_per_100)}; });
+    res[2].forEach(function(r){ fc[r.date]=r.covers; });
+    res[3].forEach(function(r){ dcov[r.date]=r; });
+    res[4].forEach(function(r){ counts[r.item_id]=r; });
+    render();
+  }).catch(function(e){
+    document.getElementById("loadmsg").innerHTML = '<span class="err">'+T[LANG].offline+'</span><br/><small>'+esc(e.message)+'</small>';
+  });
+}
+
+function coversFor(d){
+  if(dcov[d] && dcov[d].forecast_covers!=null) return dcov[d].forecast_covers;
+  if(fc[d]!=null) return fc[d];
+  return null;
+}
+function effRate(it){
+  var lr = rates[it.id];
+  if(lr && lr.n>=3 && isFinite(lr.rate)) return {rate:lr.rate, kind:"learned", n:lr.n};
+  if(it.seed_rate_per_100!=null) return {rate:parseFloat(it.seed_rate_per_100), kind:"seed"};
+  return {rate:null, kind:"none"};
+}
+function ceil0(x){ return Math.max(0, Math.ceil(x - 1e-9)); }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+function calc(it){
+  var r = effRate(it);
+  var c0=coversFor(D0)||0, c1=coversFor(D1)||0, c2=coversFor(D2)||0;
+  var row = counts[it.id]||{};
+  var out = {rate:r, pull:null, prep:null, thawTarget:null, prepTarget:null};
+  if(it.fixed_par!=null){
+    out.prepTarget = parseFloat(it.fixed_par);
+    out.prep = ceil0(out.prepTarget - (row.prep_on_hand||0));
+    return out;
+  }
+  if(r.rate==null) return out;
+  if(it.station==="thaw"||it.station==="both"){
+    out.thawTarget = r.rate*(c1+c2)/100;
+    out.pull = ceil0(out.thawTarget - (row.thaw_on_hand||0));
+  }
+  if(it.station==="prep"||it.station==="both"){
+    out.prepTarget = r.rate*c0/100;
+    out.prep = ceil0(out.prepTarget - (row.prep_on_hand||0));
+  }
+  return out;
+}
+
+function inputCell(lbl,id,val){
+  return '<div class="cell"><span class="clbl">'+lbl+'</span>'+
+   '<input inputmode="decimal" id="'+id+'" value="'+(val!=null?val:"")+'"/></div>';
+}
+function render(){
+  var t=T[LANG];
+  document.getElementById("locbadge").textContent = LOCNAMES[LOC]||LOC;
+  document.getElementById("datebadge").textContent = D0;
+  document.getElementById("tabPull").textContent = t.pull;
+  document.getElementById("tabPrep").textContent = t.prep;
+  document.getElementById("savebtn").textContent = t.save;
+  document.getElementById("hint").textContent = tab==="pull" ? t.hintPull : t.hintPrep;
+  document.getElementById("langbtn").textContent = LANG==="en"?"ES":"EN";
+  document.getElementById("who").placeholder = t.who;
+
+  var ch = '';
+  [[D0,t.today],[D1,t.tom],[D2,t.day2]].forEach(function(p){
+    var c = coversFor(p[0]);
+    ch += '<div class="cchip"><span class="lbl">'+p[1]+'</span> <span class="dt">'+p[0].slice(5)+'</span>'+
+      '<input inputmode="numeric" data-cd="'+p[0]+'" value="'+(c!=null?c:"")+'"/>'+
+      '<div class="dt" style="text-align:center">'+t.covers+'</div></div>';
+  });
+  document.getElementById("covers").innerHTML = ch;
+
+  var list = items.filter(function(it){
+    return tab==="pull" ? (it.station==="thaw"||it.station==="both")
+                        : (it.station==="prep"||it.station==="both");
+  });
+  var groups={}, order=[];
+  list.forEach(function(it){ var g=it.category||"—"; if(!groups[g]){groups[g]=[];order.push(g);} groups[g].push(it); });
+
+  var html='';
+  order.forEach(function(g){
+    html+='<h3>'+esc(g)+'</h3>';
+    groups[g].forEach(function(it){
+      var c=calc(it), row=counts[it.id]||{};
+      var nm = esc((LANG==="es"&&it.name_es)?it.name_es:it.name);
+      var rb = c.rate.kind==="learned" ? '<span class="rbadge rb-learned">'+T[LANG].learned+' n='+c.rate.n+'</span>'
+             : c.rate.kind==="seed" ? '<span class="rbadge rb-seed">'+T[LANG].seed+'</span>'
+             : '<span class="rbadge rb-none">'+T[LANG].none+'</span>';
+      var doN = tab==="pull"?c.pull:c.prep;
+      var doLbl = tab==="pull"?T[LANG].pullN:T[LANG].prepN;
+      var doCls = doN==null?"zero":(doN>0?"go":"zero");
+      var tgt = tab==="pull"?c.thawTarget:c.prepTarget;
+      html+='<div class="card" data-id="'+it.id+'">'+
+        '<div class="namewrap"><div class="name">'+nm+' '+rb+'</div>'+
+        '<div class="sub">'+esc(it.unit_name)+(tgt!=null?' · target '+Math.ceil(tgt):'')+'</div></div>';
+      if(tab==="pull"){
+        html+= inputCell(T[LANG].onRack,'oh_'+it.id,row.thaw_on_hand);
+        html+= inputCell(T[LANG].didPull,'did_'+it.id,row.pulled);
+      } else {
+        html+= inputCell(T[LANG].onPrep,'oh_'+it.id,row.prep_on_hand);
+        html+= inputCell(T[LANG].didPrep,'did_'+it.id,row.prepped);
+      }
+      html+='<div class="do '+doCls+'"><div class="num">'+(doN==null?"—":doN)+'</div><div class="u">'+doLbl+'</div></div></div>';
+    });
+  });
+  document.getElementById("content").innerHTML = html || '<div class="loading">—</div>';
+
+  document.querySelectorAll('#covers input').forEach(function(inp){
+    inp.addEventListener('change', function(){
+      var d=inp.getAttribute('data-cd'), v=parseInt(inp.value,10);
+      if(!dcov[d]) dcov[d]={location:LOC,date:d};
+      dcov[d].forecast_covers = isNaN(v)?null:v; dcov[d]._dirty=true;
+      render();
+    });
+  });
+  document.querySelectorAll('.card input').forEach(function(inp){
+    inp.addEventListener('change', function(){
+      var card=inp.closest('.card'), id=card.getAttribute('data-id');
+      if(!counts[id]) counts[id]={location:LOC,date:D0,item_id:id};
+      var v = inp.value===""?null:parseFloat(inp.value);
+      if(inp.id.indexOf('oh_')===0) counts[id][tab==="pull"?"thaw_on_hand":"prep_on_hand"]=v;
+      else counts[id][tab==="pull"?"pulled":"prepped"]=v;
+      counts[id]._dirty=true;
+      render();
+    });
+  });
+}
+
+document.getElementById("tabPull").addEventListener('click',function(){tab="pull";
+  document.getElementById("tabPull").classList.add("active");document.getElementById("tabPrep").classList.remove("active");render();});
+document.getElementById("tabPrep").addEventListener('click',function(){tab="prep";
+  document.getElementById("tabPrep").classList.add("active");document.getElementById("tabPull").classList.remove("active");render();});
+document.getElementById("langbtn").addEventListener('click',function(){LANG=LANG==="en"?"es":"en";render();});
+
+document.getElementById("savebtn").addEventListener('click',function(){
+  var btn=document.getElementById("savebtn"); btn.disabled=true;
+  var who=document.getElementById("who").value||null;
+  var rows=[], covRows=[];
+  Object.keys(counts).forEach(function(id){
+    var r=counts[id]; if(!r._dirty) return;
+    rows.push({location:LOC,date:D0,item_id:id,thaw_on_hand:r.thaw_on_hand,prep_on_hand:r.prep_on_hand,
+      pulled:r.pulled,prepped:r.prepped,entered_by:who,updated_at:new Date().toISOString()});
+  });
+  Object.keys(dcov).forEach(function(d){
+    var r=dcov[d]; if(!r._dirty) return;
+    covRows.push({location:LOC,date:d,forecast_covers:r.forecast_covers,updated_at:new Date().toISOString()});
+  });
+  var ps=[];
+  if(rows.length) ps.push(api("pt_daily_counts?on_conflict=location,date,item_id",
+    {method:"POST",headers:{"Prefer":"resolution=merge-duplicates"},body:JSON.stringify(rows)}));
+  if(covRows.length) ps.push(api("pt_daily_covers?on_conflict=location,date",
+    {method:"POST",headers:{"Prefer":"resolution=merge-duplicates"},body:JSON.stringify(covRows)}));
+  Promise.all(ps).then(function(){
+    Object.keys(counts).forEach(function(k){delete counts[k]._dirty;});
+    Object.keys(dcov).forEach(function(k){delete dcov[k]._dirty;});
+    var m=document.getElementById("savemsg"); m.textContent=T[LANG].saved;
+    setTimeout(function(){m.textContent="";},2500); btn.disabled=false;
+  }).catch(function(e){
+    var m=document.getElementById("savemsg"); m.innerHTML='<span class="err">'+T[LANG].errSave+'</span>';
+    setTimeout(function(){m.textContent="";},4000); btn.disabled=false;
+  });
+});
+
+load();
+</script>
+</body>
+</html>
