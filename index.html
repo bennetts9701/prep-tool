@@ -63,6 +63,16 @@ input.who{width:70px;background:var(--panel2);border:1px solid var(--line);color
 .savemsg{position:fixed;bottom:86px;left:0;right:0;text-align:center;font-size:14px;color:var(--accent);z-index:41;}
 .err{color:var(--red);}
 .loading{padding:40px;text-align:center;color:var(--dim);font-size:16px;}
+.mrow{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px;
+  display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;}
+.mrow input,.mrow select{background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  border-radius:8px;padding:8px;font-size:14px;width:100%;}
+.mrow input[type=checkbox]{width:22px;height:22px;}
+.mrow label{font-size:11px;color:var(--dim);display:block;margin-bottom:2px;}
+.mbtns{display:flex;gap:10px;margin:4px 0 12px;}
+.mbtns button{flex:1;padding:12px;border-radius:10px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--text);font-weight:700;font-size:15px;cursor:pointer;}
+.mbtns button.primary{background:var(--accent);color:#08281f;border:none;}
 @media (max-width:480px){ .card{grid-template-columns:1fr 1fr; } .card .namewrap{grid-column:1 / -1;} }
 </style>
 </head>
@@ -73,6 +83,7 @@ input.who{width:70px;background:var(--panel2);border:1px solid var(--line);color
   <span class="badge" id="datebadge"></span>
   <span class="spacer"></span>
   <input class="who" id="who" maxlength="6" placeholder="Init.">
+  <button class="langbtn" id="mgrbtn">⚙</button>
   <button class="langbtn" id="langbtn">ES</button>
 </header>
 
@@ -121,6 +132,7 @@ function etDate(offset){
 var D0=etDate(0), D1=etDate(1), D2=etDate(2);
 
 var items=[], rates={}, fc={}, dcov={}, counts={}, tab="pull";
+var manage=false, MPIN="1234", edits=[];
 
 function api(path, opts){
   opts = opts || {};
@@ -270,9 +282,86 @@ function render(){
   });
 }
 
-document.getElementById("tabPull").addEventListener('click',function(){tab="pull";
+// ---------- Manager mode (item list editing) ----------
+function mfield(label,i,field,val,ph){
+  return '<div><label>'+label+'</label><input data-i="'+i+'" data-f="'+field+'" placeholder="'+(ph||'')+'" value="'+esc(val==null?'':val)+'"/></div>';
+}
+function mrow(it,i){
+  var st = '<div><label>Station</label><select data-i="'+i+'" data-f="station">'+
+    ['prep','thaw','both'].map(function(s){return '<option value="'+s+'"'+(it.station===s?' selected="selected"':'')+'>'+s+'</option>';}).join('')+
+    '</select></div>';
+  var act = '<div><label>Active</label><input type="checkbox" data-i="'+i+'" data-f="active"'+(it.active!==false?' checked="checked"':'')+'/></div>';
+  return '<div class="mrow">'+
+    mfield('Name',i,'name',it.name)+
+    mfield('Nombre (Spanish)',i,'name_es',it.name_es)+
+    mfield('Category',i,'category',it.category,'Protein / Sides / Sauces')+
+    st+
+    mfield('Unit',i,'unit_name',it.unit_name,'pan / bag / lb')+
+    mfield('Unit weight (lb)',i,'unit_lb',it.unit_lb)+
+    mfield('Rate per 100 covers',i,'seed_rate_per_100',it.seed_rate_per_100)+
+    mfield('Fixed par (ignores covers)',i,'fixed_par',it.fixed_par)+
+    act+'</div>';
+}
+function renderManage(){
+  document.getElementById("hint").textContent =
+    "Manager mode — edit the item list. Rate here is the STARTING rate; once 3+ days of counts exist the learned rate takes over automatically. Uncheck Active to hide an item. Blank names are ignored.";
+  var h='<div class="mbtns"><button id="mAdd">+ Add item</button><button id="mSave" class="primary">SAVE ITEMS</button><button id="mDone">Done</button></div>';
+  h += edits.map(function(it,i){ return mrow(it,i); }).join('');
+  document.getElementById("content").innerHTML = h;
+  document.querySelectorAll('#content [data-f]').forEach(function(el){
+    el.addEventListener('change', function(){
+      var i=parseInt(el.getAttribute('data-i'),10), f=el.getAttribute('data-f');
+      edits[i][f] = (el.type==='checkbox') ? el.checked : el.value;
+    });
+  });
+  document.getElementById("mAdd").addEventListener('click', function(){
+    var maxSort = edits.reduce(function(m,e){return Math.max(m, e.sort||0);}, 0);
+    edits.push({location:LOC, name:"", name_es:"", category:"", station:"prep",
+                unit_name:"", unit_lb:null, seed_rate_per_100:null, fixed_par:null,
+                active:true, sort:maxSort+10, source:"manager"});
+    renderManage();
+    document.getElementById("content").lastElementChild.scrollIntoView();
+  });
+  document.getElementById("mDone").addEventListener('click', function(){ manage=false; render(); });
+  document.getElementById("mSave").addEventListener('click', saveItems);
+}
+function numOrNull(v){ if(v===''||v==null) return null; var n=parseFloat(v); return isNaN(n)?null:n; }
+function saveItems(){
+  var upserts=[], inserts=[];
+  edits.forEach(function(e){
+    if(!e.name || !String(e.name).trim()) return;
+    var row = {location:e.location||LOC, name:String(e.name).trim(), name_es:e.name_es||null,
+      category:e.category||null, station:e.station||'prep', unit_name:e.unit_name||'ea',
+      unit_lb:numOrNull(e.unit_lb), seed_rate_per_100:numOrNull(e.seed_rate_per_100),
+      fixed_par:numOrNull(e.fixed_par), active:e.active!==false, sort:e.sort||100,
+      source:e.source||'manager'};
+    if(e.id){ row.id=e.id; upserts.push(row); } else { inserts.push(row); }
+  });
+  var ps=[];
+  if(upserts.length) ps.push(api("pt_items?on_conflict=id",
+    {method:"POST",headers:{"Prefer":"resolution=merge-duplicates"},body:JSON.stringify(upserts)}));
+  if(inserts.length) ps.push(api("pt_items",
+    {method:"POST",headers:{"Prefer":"return=minimal"},body:JSON.stringify(inserts)}));
+  Promise.all(ps).then(function(){
+    manage=false; items=[];
+    var m=document.getElementById("savemsg"); m.textContent="Items saved ✓";
+    setTimeout(function(){m.textContent="";},2500);
+    load();
+  }).catch(function(e){
+    window.alert("Could not save items: "+e.message);
+  });
+}
+document.getElementById("mgrbtn").addEventListener('click', function(){
+  if(manage){ manage=false; render(); return; }
+  var p = window.prompt("Manager PIN:");
+  if(p===MPIN){ manage=true; edits = items.map(function(it){ return Object.assign({}, it); }); renderManage(); }
+  else if(p!==null){ window.alert("Wrong PIN"); }
+});
+// ---------- end manager mode ----------
+
+document.getElementById("tabPull").addEventListener('click',function(){tab="pull";manage=false;
   document.getElementById("tabPull").classList.add("active");document.getElementById("tabPrep").classList.remove("active");render();});
-document.getElementById("tabPrep").addEventListener('click',function(){tab="prep";
+document.getElementById("tabPrep").addEventListener('click',function(){tab="prep";manage=false;
   document.getElementById("tabPrep").classList.add("active");document.getElementById("tabPull").classList.remove("active");render();});
 document.getElementById("langbtn").addEventListener('click',function(){LANG=LANG==="en"?"es":"en";render();});
 
