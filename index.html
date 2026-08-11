@@ -111,14 +111,14 @@ var T = {
       save:"SAVE COUNTS", saved:"Saved ✓", errSave:"Could not save — check wifi and try again.",
       hintPull:"Count what is on the thaw racks now. PULL = what to move from the freezer to the racks today, sized to cover the next two days (24–36 h thaw).",
       hintPrep:"Count what is prepped and ready now. PREP = what to make today for today's forecast.",
-      learned:"learned", seed:"seed", none:"no rate", covers:"covers", loading:"Loading…",
+      learned:"learned", seed:"seed", none:"no rate", linkedTo:"linked", covers:"covers", loading:"Loading…",
       offline:"Cannot reach the server. Check wifi.", who:"Init."},
   es:{pull:"PARRILLAS DE DESCONGELAR", prep:"PREPARACIÓN", today:"Hoy", tom:"Mañana", day2:"Pasado",
       onRack:"En parrillas ahora", onPrep:"Listo ahora", pullN:"SACAR", prepN:"PREPARAR", didPull:"Sacado", didPrep:"Hecho",
       save:"GUARDAR CONTEOS", saved:"Guardado ✓", errSave:"No se pudo guardar — revise el wifi e intente de nuevo.",
       hintPull:"Cuente lo que hay en las parrillas ahora. SACAR = lo que hay que pasar del congelador a las parrillas hoy, para cubrir los próximos dos días (24–36 h de descongelado).",
       hintPrep:"Cuente lo que ya está preparado. PREPARAR = lo que hay que hacer hoy para el pronóstico de hoy.",
-      learned:"aprendido", seed:"inicial", none:"sin tasa", covers:"clientes", loading:"Cargando…",
+      learned:"aprendido", seed:"inicial", none:"sin tasa", linkedTo:"vinculado", covers:"clientes", loading:"Cargando…",
       offline:"No hay conexión con el servidor. Revise el wifi.", who:"Inic."}
 };
 
@@ -180,22 +180,39 @@ function effRate(it){
 function ceil0(x){ return Math.max(0, Math.ceil(x - 1e-9)); }
 function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
+function childrenOf(it){
+  return items.filter(function(x){ return x.parent_id===it.id && x.active!==false; });
+}
 function calc(it){
   var r = effRate(it);
   var c0=coversFor(D0)||0, c1=coversFor(D1)||0, c2=coversFor(D2)||0;
   var row = counts[it.id]||{};
-  var out = {rate:r, pull:null, prep:null, thawTarget:null, prepTarget:null};
+  var out = {rate:r, pull:null, prep:null, thawTarget:null, prepTarget:null, linked:0, linkedMissing:0};
   if(it.fixed_par!=null){
     out.prepTarget = parseFloat(it.fixed_par);
     out.prep = ceil0(out.prepTarget - (row.prep_on_hand||0));
     return out;
   }
-  if(r.rate==null) return out;
   if(it.station==="thaw"||it.station==="both"){
-    out.thawTarget = r.rate*(c1+c2)/100;
-    out.pull = ceil0(out.thawTarget - (row.thaw_on_hand||0));
+    var kids = childrenOf(it);
+    if(kids.length && it.unit_lb>0){
+      // pull is driven by everything downstream: sum children's lb burn, convert to this item's thaw units
+      var lbPer100 = 0;
+      kids.forEach(function(k){
+        var kr = effRate(k);
+        if(kr.rate!=null && k.unit_lb>0){ lbPer100 += kr.rate*k.unit_lb; out.linked++; }
+        else { out.linkedMissing++; }
+      });
+      if(out.linked>0){
+        out.thawTarget = lbPer100*(c1+c2)/100/it.unit_lb;
+        out.pull = ceil0(out.thawTarget - (row.thaw_on_hand||0));
+      }
+    } else if(r.rate!=null){
+      out.thawTarget = r.rate*(c1+c2)/100;
+      out.pull = ceil0(out.thawTarget - (row.thaw_on_hand||0));
+    }
   }
-  if(it.station==="prep"||it.station==="both"){
+  if((it.station==="prep"||it.station==="both") && r.rate!=null){
     out.prepTarget = r.rate*c0/100;
     out.prep = ceil0(out.prepTarget - (row.prep_on_hand||0));
   }
@@ -239,9 +256,15 @@ function render(){
     groups[g].forEach(function(it){
       var c=calc(it), row=counts[it.id]||{};
       var nm = esc((LANG==="es"&&it.name_es)?it.name_es:it.name);
-      var rb = c.rate.kind==="learned" ? '<span class="rbadge rb-learned">'+T[LANG].learned+' n='+c.rate.n+'</span>'
-             : c.rate.kind==="seed" ? '<span class="rbadge rb-seed">'+T[LANG].seed+'</span>'
-             : '<span class="rbadge rb-none">'+T[LANG].none+'</span>';
+      var rb;
+      if(tab==="pull" && c.linked>0){
+        rb = '<span class="rbadge rb-learned">'+T[LANG].linkedTo+' ×'+c.linked+'</span>'+
+             (c.linkedMissing>0 ? ' <span class="rbadge rb-none">'+c.linkedMissing+' '+T[LANG].none+'</span>' : '');
+      } else {
+        rb = c.rate.kind==="learned" ? '<span class="rbadge rb-learned">'+T[LANG].learned+' n='+c.rate.n+'</span>'
+           : c.rate.kind==="seed" ? '<span class="rbadge rb-seed">'+T[LANG].seed+'</span>'
+           : '<span class="rbadge rb-none">'+T[LANG].none+'</span>';
+      }
       var doN = tab==="pull"?c.pull:c.prep;
       var doLbl = tab==="pull"?T[LANG].pullN:T[LANG].prepN;
       var doCls = doN==null?"zero":(doN>0?"go":"zero");
@@ -290,15 +313,21 @@ function mrow(it,i){
   var st = '<div><label>Station</label><select data-i="'+i+'" data-f="station">'+
     ['prep','thaw','both'].map(function(s){return '<option value="'+s+'"'+(it.station===s?' selected="selected"':'')+'>'+s+'</option>';}).join('')+
     '</select></div>';
+  var thawItems = edits.filter(function(x){ return (x.station==='thaw'||x.station==='both') && x.id && x.id!==it.id; });
+  var par = '<div><label>Draws from (thaw item)</label><select data-i="'+i+'" data-f="parent_id">'+
+    '<option value="">— none —</option>'+
+    thawItems.map(function(x){ return '<option value="'+x.id+'"'+(it.parent_id===x.id?' selected="selected"':'')+'>'+esc(x.name)+'</option>'; }).join('')+
+    '</select></div>';
   var act = '<div><label>Active</label><input type="checkbox" data-i="'+i+'" data-f="active"'+(it.active!==false?' checked="checked"':'')+'/></div>';
   return '<div class="mrow">'+
     mfield('Name',i,'name',it.name)+
     mfield('Nombre (Spanish)',i,'name_es',it.name_es)+
     mfield('Category',i,'category',it.category,'Protein / Sides / Sauces')+
     st+
-    mfield('Unit',i,'unit_name',it.unit_name,'pan / bag / lb')+
+    mfield('Unit',i,'unit_name',it.unit_name,'pan / bag / block')+
     mfield('Unit weight (lb)',i,'unit_lb',it.unit_lb)+
-    mfield('Rate per 100 covers',i,'seed_rate_per_100',it.seed_rate_per_100)+
+    mfield('Rate per 100 covers (in units)',i,'seed_rate_per_100',it.seed_rate_per_100)+
+    par+
     mfield('Fixed par (ignores covers)',i,'fixed_par',it.fixed_par)+
     act+'</div>';
 }
@@ -311,14 +340,14 @@ function renderManage(){
   document.querySelectorAll('#content [data-f]').forEach(function(el){
     el.addEventListener('change', function(){
       var i=parseInt(el.getAttribute('data-i'),10), f=el.getAttribute('data-f');
-      edits[i][f] = (el.type==='checkbox') ? el.checked : el.value;
+      edits[i][f] = (el.type==='checkbox') ? el.checked : (f==='parent_id' && el.value==='' ? null : el.value);
     });
   });
   document.getElementById("mAdd").addEventListener('click', function(){
     var maxSort = edits.reduce(function(m,e){return Math.max(m, e.sort||0);}, 0);
     edits.push({location:LOC, name:"", name_es:"", category:"", station:"prep",
                 unit_name:"", unit_lb:null, seed_rate_per_100:null, fixed_par:null,
-                active:true, sort:maxSort+10, source:"manager"});
+                parent_id:null, active:true, sort:maxSort+10, source:"manager"});
     renderManage();
     document.getElementById("content").lastElementChild.scrollIntoView();
   });
@@ -334,7 +363,7 @@ function saveItems(){
       category:e.category||null, station:e.station||'prep', unit_name:e.unit_name||'ea',
       unit_lb:numOrNull(e.unit_lb), seed_rate_per_100:numOrNull(e.seed_rate_per_100),
       fixed_par:numOrNull(e.fixed_par), active:e.active!==false, sort:e.sort||100,
-      source:e.source||'manager'};
+      parent_id:e.parent_id||null, source:e.source||'manager'};
     if(e.id){ row.id=e.id; upserts.push(row); } else { inserts.push(row); }
   });
   var ps=[];
