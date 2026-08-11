@@ -75,6 +75,21 @@ input.who{width:70px;background:var(--panel2);border:1px solid var(--line);color
 .mbtns button.primary{background:var(--accent);color:#08281f;border:none;}
 .mrow.inactive{opacity:.5;}
 @media (max-width:480px){ .card{grid-template-columns:1fr 1fr; } .card .namewrap{grid-column:1 / -1;} }
+#printarea{display:none;}
+@media print{
+  body > *{display:none !important;}
+  body{position:static !important;overflow:visible !important;background:#fff !important;padding:0 !important;}
+  #printarea{display:block !important;color:#000;background:#fff;font-size:12px;}
+  #printarea h2{font-size:16px;margin:0 0 2px;}
+  #printarea .pmeta{font-size:11px;margin:0 0 10px;color:#333;}
+  #printarea h3{font-size:13px;margin:12px 0 4px;border-bottom:2px solid #000;padding-bottom:2px;text-transform:uppercase;}
+  #printarea table{width:100%;border-collapse:collapse;}
+  #printarea th{font-size:10px;text-transform:uppercase;text-align:left;border-bottom:1px solid #000;padding:3px 6px;}
+  #printarea td{border-bottom:1px solid #bbb;padding:5px 6px;font-size:12px;}
+  #printarea td.num{font-weight:800;font-size:14px;text-align:center;width:70px;}
+  #printarea td.c{text-align:center;width:80px;}
+  #printarea .psign{margin-top:16px;font-size:11px;}
+}
 </style>
 </head>
 <body>
@@ -84,6 +99,7 @@ input.who{width:70px;background:var(--panel2);border:1px solid var(--line);color
   <span class="badge" id="datebadge"></span>
   <span class="spacer"></span>
   <input class="who" id="who" maxlength="6" placeholder="Init.">
+  <button class="langbtn" id="printbtn">⎙</button>
   <button class="langbtn" id="mgrbtn">⚙</button>
   <button class="langbtn" id="langbtn">ES</button>
 </header>
@@ -98,6 +114,7 @@ input.who{width:70px;background:var(--panel2);border:1px solid var(--line);color
 
 <div class="savebar"><button id="savebtn"></button></div>
 <div class="savemsg" id="savemsg"></div>
+<div id="printarea"></div>
 
 <script>
 var SB_URL = "https://yagdfrhyznunkzkbjewz.supabase.co";
@@ -113,14 +130,18 @@ var T = {
       hintPull:"Count what is on the thaw racks now. PULL = what to move from the freezer to the racks today, sized to cover the next two days (24–36 h thaw).",
       hintPrep:"Count what is prepped and ready now. PREP = what to make today for today's forecast.",
       learned:"learned", seed:"seed", none:"no rate", linkedTo:"linked", covers:"covers", loading:"Loading…",
-      offline:"Cannot reach the server. Check wifi.", who:"Init."},
+      offline:"Cannot reach the server. Check wifi.", who:"Init.",
+      pItem:"Item", pUnit:"Unit", pTarget:"Target", pOnHand:"On hand", pPullSec:"Pull today (freezer → thaw racks)",
+      pPrepSec:"Prep today", pPrintedBy:"Counted by", pSign:"Completed by / time:"},
   es:{pull:"PARRILLAS DE DESCONGELAR", prep:"PREPARACIÓN", today:"Hoy", tom:"Mañana", day2:"Pasado",
       onRack:"En parrillas ahora", onPrep:"Listo ahora", pullN:"SACAR", prepN:"PREPARAR", didPull:"Sacado", didPrep:"Hecho",
       save:"GUARDAR CONTEOS", saved:"Guardado ✓", errSave:"No se pudo guardar — revise el wifi e intente de nuevo.",
       hintPull:"Cuente lo que hay en las parrillas ahora. SACAR = lo que hay que pasar del congelador a las parrillas hoy, para cubrir los próximos dos días (24–36 h de descongelado).",
       hintPrep:"Cuente lo que ya está preparado. PREPARAR = lo que hay que hacer hoy para el pronóstico de hoy.",
       learned:"aprendido", seed:"inicial", none:"sin tasa", linkedTo:"vinculado", covers:"clientes", loading:"Cargando…",
-      offline:"No hay conexión con el servidor. Revise el wifi.", who:"Inic."}
+      offline:"No hay conexión con el servidor. Revise el wifi.", who:"Inic.",
+      pItem:"Artículo", pUnit:"Unidad", pTarget:"Meta", pOnHand:"En mano", pPullSec:"Sacar hoy (congelador → parrillas)",
+      pPrepSec:"Preparar hoy", pPrintedBy:"Contado por", pSign:"Completado por / hora:"}
 };
 
 function etDate(offset){
@@ -399,6 +420,42 @@ document.getElementById("tabPull").addEventListener('click',function(){tab="pull
 document.getElementById("tabPrep").addEventListener('click',function(){tab="prep";manage=false;
   document.getElementById("tabPrep").classList.add("active");document.getElementById("tabPull").classList.remove("active");render();});
 document.getElementById("langbtn").addEventListener('click',function(){LANG=LANG==="en"?"es":"en";render();});
+
+document.getElementById("printbtn").addEventListener('click',function(){
+  var t=T[LANG];
+  function rowsFor(mode){
+    var out='';
+    items.forEach(function(it){
+      if(it.active===false) return;
+      var isPull = (it.station==="thaw"||it.station==="both");
+      var isPrep = (it.station==="prep"||it.station==="both");
+      if(mode==="pull" && !isPull) return;
+      if(mode==="prep" && !isPrep) return;
+      var c=calc(it), row=counts[it.id]||{};
+      var nm = esc((LANG==="es"&&it.name_es)?it.name_es:it.name);
+      var tgt = mode==="pull"?c.thawTarget:c.prepTarget;
+      var oh = mode==="pull"?row.thaw_on_hand:row.prep_on_hand;
+      var act = mode==="pull"?c.pull:c.prep;
+      out+='<tr><td>'+nm+'</td><td class="c">'+esc(it.unit_name)+'</td>'+
+        '<td class="c">'+(tgt!=null?Math.ceil(tgt):'—')+'</td>'+
+        '<td class="c">'+(oh!=null?oh:'—')+'</td>'+
+        '<td class="num">'+(act!=null?act:'—')+'</td></tr>';
+    });
+    return out;
+  }
+  var who = document.getElementById("who").value;
+  var now = new Date().toLocaleString("en-US",{timeZone:"America/New_York"});
+  var head = '<tr><th>'+t.pItem+'</th><th>'+t.pUnit+'</th><th>'+t.pTarget+'</th><th>'+t.pOnHand+'</th><th></th></tr>';
+  var h = '<h2>Bennett\'s Pull &amp; Prep — '+(LOCNAMES[LOC]||LOC)+' · '+D0+'</h2>'+
+    '<div class="pmeta">'+t.today+' '+(coversFor(D0)!=null?coversFor(D0):'—')+' · '+t.tom+' '+(coversFor(D1)!=null?coversFor(D1):'—')+
+    ' · '+t.day2+' '+(coversFor(D2)!=null?coversFor(D2):'—')+' '+t.covers+
+    (who?(' · '+t.pPrintedBy+': '+esc(who)):'')+' · '+esc(now)+'</div>'+
+    '<h3>'+t.pPullSec+'</h3><table>'+head.replace('<th></th>','<th>'+t.pullN+'</th>')+rowsFor("pull")+'</table>'+
+    '<h3>'+t.pPrepSec+'</h3><table>'+head.replace('<th></th>','<th>'+t.prepN+'</th>')+rowsFor("prep")+'</table>'+
+    '<div class="psign">'+t.pSign+' ____________________________</div>';
+  document.getElementById("printarea").innerHTML = h;
+  window.print();
+});
 
 document.getElementById("savebtn").addEventListener('click',function(){
   var btn=document.getElementById("savebtn"); btn.disabled=true;
