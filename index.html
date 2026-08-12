@@ -153,6 +153,13 @@ function etDate(offset){
 }
 var D0=etDate(0), D1=etDate(1), D2=etDate(2);
 
+// A home-screen app can resume days later with yesterday's page in memory.
+// If the ET date has rolled over since load, force a clean reload.
+function dateGuard(){ if(etDate(0)!==D0){ location.reload(); } }
+document.addEventListener("visibilitychange", function(){ if(!document.hidden) dateGuard(); });
+window.addEventListener("pageshow", dateGuard);
+setInterval(dateGuard, 60000);
+
 var items=[], rates={}, fc={}, dcov={}, counts={}, tab="pull";
 var manage=false, MPIN="1234", edits=[];
 
@@ -320,9 +327,12 @@ function render(){
       var card=inp.closest('.card'), id=card.getAttribute('data-id');
       if(!counts[id]) counts[id]={location:LOC,date:D0,item_id:id};
       var v = inp.value===""?null:parseFloat(inp.value);
-      if(inp.id.indexOf('oh_')===0) counts[id][tab==="pull"?"thaw_on_hand":"prep_on_hand"]=v;
-      else counts[id][tab==="pull"?"pulled":"prepped"]=v;
+      var f = inp.id.indexOf('oh_')===0 ? (tab==="pull"?"thaw_on_hand":"prep_on_hand")
+                                        : (tab==="pull"?"pulled":"prepped");
+      counts[id][f]=v;
       counts[id]._dirty=true;
+      if(!counts[id]._df) counts[id]._df={};
+      counts[id]._df[f]=true;   // field-level dirty: saves only send fields THIS device touched
       render();
     });
   });
@@ -422,6 +432,17 @@ document.getElementById("tabPrep").addEventListener('click',function(){tab="prep
 document.getElementById("langbtn").addEventListener('click',function(){LANG=LANG==="en"?"es":"en";render();});
 
 document.getElementById("printbtn").addEventListener('click',function(){
+  // never print unsaved work: auto-save anything dirty first
+  var pre = hasDirty() ? doSave().then(function(){
+    var m=document.getElementById("savemsg"); m.textContent=T[LANG].saved;
+    setTimeout(function(){m.textContent="";},2500);
+  }).catch(function(){
+    var m=document.getElementById("savemsg"); m.innerHTML='<span class="err">'+T[LANG].errSave+'</span>';
+    setTimeout(function(){m.textContent="";},4000);
+  }) : Promise.resolve();
+  pre.then(doPrint);
+});
+function doPrint(){
   var t=T[LANG];
   function rowsFor(mode){
     var out='';
@@ -435,11 +456,14 @@ document.getElementById("printbtn").addEventListener('click',function(){
       var nm = esc((LANG==="es"&&it.name_es)?it.name_es:it.name);
       var tgt = mode==="pull"?c.thawTarget:c.prepTarget;
       var oh = mode==="pull"?row.thaw_on_hand:row.prep_on_hand;
-      var act = mode==="pull"?c.pull:c.prep;
+      // manager's entered Pulled/Made ALWAYS beats the computed suggestion on paper
+      var entered = mode==="pull"?row.pulled:row.prepped;
+      var act = entered!=null?entered:(mode==="pull"?c.pull:c.prep);
+      var mark = entered!=null?' ✓':'';
       out+='<tr><td>'+nm+'</td><td class="c">'+esc(it.unit_name)+'</td>'+
         '<td class="c">'+(tgt!=null?Math.ceil(tgt):'—')+'</td>'+
         '<td class="c">'+(oh!=null?oh:'—')+'</td>'+
-        '<td class="num">'+(act!=null?act:'—')+'</td></tr>';
+        '<td class="num">'+(act!=null?act+mark:'—')+'</td></tr>';
     });
     return out;
   }
@@ -455,29 +479,38 @@ document.getElementById("printbtn").addEventListener('click',function(){
     '<div class="psign">'+t.pSign+' ____________________________</div>';
   document.getElementById("printarea").innerHTML = h;
   window.print();
-});
+}
 
-document.getElementById("savebtn").addEventListener('click',function(){
-  var btn=document.getElementById("savebtn"); btn.disabled=true;
+function hasDirty(){
+  return Object.keys(counts).some(function(k){return counts[k]._dirty;}) ||
+         Object.keys(dcov).some(function(k){return dcov[k]._dirty;});
+}
+function doSave(){
   var who=document.getElementById("who").value||null;
-  var rows=[], covRows=[];
+  var ps=[];
   Object.keys(counts).forEach(function(id){
     var r=counts[id]; if(!r._dirty) return;
-    rows.push({location:LOC,date:D0,item_id:id,thaw_on_hand:r.thaw_on_hand,prep_on_hand:r.prep_on_hand,
-      pulled:r.pulled,prepped:r.prepped,entered_by:who,updated_at:new Date().toISOString()});
+    // send ONLY the fields this device touched — two people counting at once
+    // can no longer blank out each other's entries
+    var row={location:LOC,date:D0,item_id:id,entered_by:who,updated_at:new Date().toISOString()};
+    Object.keys(r._df||{}).forEach(function(f){ row[f]=r[f]; });
+    ps.push(api("pt_daily_counts?on_conflict=location,date,item_id",
+      {method:"POST",headers:{"Prefer":"resolution=merge-duplicates"},body:JSON.stringify([row])}));
   });
   Object.keys(dcov).forEach(function(d){
     var r=dcov[d]; if(!r._dirty) return;
-    covRows.push({location:LOC,date:d,forecast_covers:r.forecast_covers,updated_at:new Date().toISOString()});
+    ps.push(api("pt_daily_covers?on_conflict=location,date",
+      {method:"POST",headers:{"Prefer":"resolution=merge-duplicates"},
+       body:JSON.stringify([{location:LOC,date:d,forecast_covers:r.forecast_covers,updated_at:new Date().toISOString()}])}));
   });
-  var ps=[];
-  if(rows.length) ps.push(api("pt_daily_counts?on_conflict=location,date,item_id",
-    {method:"POST",headers:{"Prefer":"resolution=merge-duplicates"},body:JSON.stringify(rows)}));
-  if(covRows.length) ps.push(api("pt_daily_covers?on_conflict=location,date",
-    {method:"POST",headers:{"Prefer":"resolution=merge-duplicates"},body:JSON.stringify(covRows)}));
-  Promise.all(ps).then(function(){
-    Object.keys(counts).forEach(function(k){delete counts[k]._dirty;});
+  return Promise.all(ps).then(function(){
+    Object.keys(counts).forEach(function(k){delete counts[k]._dirty; delete counts[k]._df;});
     Object.keys(dcov).forEach(function(k){delete dcov[k]._dirty;});
+  });
+}
+document.getElementById("savebtn").addEventListener('click',function(){
+  var btn=document.getElementById("savebtn"); btn.disabled=true;
+  doSave().then(function(){
     var m=document.getElementById("savemsg"); m.textContent=T[LANG].saved;
     setTimeout(function(){m.textContent="";},2500); btn.disabled=false;
   }).catch(function(e){
