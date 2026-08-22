@@ -55,6 +55,9 @@ input.who{width:70px;background:var(--panel2);border:1px solid var(--line);color
 .do .u{font-size:11px;color:var(--dim);}
 .do.zero .num{color:var(--dim);}
 .do.go .num{color:var(--accent);}
+.do.warn{border-color:var(--red);}
+.do.warn .num{color:var(--red);}
+.do.info .num{color:var(--blue);font-size:24px;}
 .savebar{position:fixed;left:0;right:0;bottom:0;z-index:40;background:linear-gradient(transparent, var(--bg) 30%);
   padding:14px;display:flex;gap:10px;align-items:center;}
 .savebar button{flex:1;background:var(--accent);border:none;color:#08281f;font-size:18px;font-weight:800;
@@ -129,6 +132,9 @@ var T = {
       save:"SAVE COUNTS", saved:"Saved ✓", errSave:"Could not save — check wifi and try again.",
       hintPull:"Count what is on the thaw racks now. PULL = what to move from the freezer to the racks today, sized to cover the next two days (24–36 h thaw).",
       hintPrep:"Count what is prepped and ready now. PREP = what to make today for today's forecast.",
+      batch:"BATCH", mini:"MINI-BATCH", cdays:"DAYS LEFT", holdCap:"hold-capped",
+      hintPrepDay:"Prep day (Mon / Thu / Sun). Count what is ready; BATCH = what to make now to last until the next prep day. Enter what you made under 'Made'.",
+      hintPrepOff:"Not a prep day. Blue = days of coverage left. A red MINI-BATCH number means that item will NOT last to the next prep day — make just that much today.",
       learned:"learned", seed:"seed", none:"no rate", linkedTo:"linked", covers:"covers", loading:"Loading…",
       offline:"Cannot reach the server. Check wifi.", who:"Init.",
       pItem:"Item", pUnit:"Unit", pTarget:"Target", pOnHand:"On hand", pPullSec:"Pull today (freezer → thaw racks)",
@@ -138,6 +144,9 @@ var T = {
       save:"GUARDAR CONTEOS", saved:"Guardado ✓", errSave:"No se pudo guardar — revise el wifi e intente de nuevo.",
       hintPull:"Cuente lo que hay en las parrillas ahora. SACAR = lo que hay que pasar del congelador a las parrillas hoy, para cubrir los próximos dos días (24–36 h de descongelado).",
       hintPrep:"Cuente lo que ya está preparado. PREPARAR = lo que hay que hacer hoy para el pronóstico de hoy.",
+      batch:"LOTE", mini:"LOTE EXTRA", cdays:"DÍAS RESTAN", holdCap:"límite frescura",
+      hintPrepDay:"Día de preparación (lun / jue / dom). Cuente lo que está listo; LOTE = lo que hay que hacer ahora para durar hasta el próximo día de prep. Anote lo que hizo en 'Hecho'.",
+      hintPrepOff:"Hoy no es día de prep. Azul = días de cobertura. Un número rojo LOTE EXTRA significa que ese artículo NO durará hasta el próximo día de prep — haga solo esa cantidad hoy.",
       learned:"aprendido", seed:"inicial", none:"sin tasa", linkedTo:"vinculado", covers:"clientes", loading:"Cargando…",
       offline:"No hay conexión con el servidor. Revise el wifi.", who:"Inic.",
       pItem:"Artículo", pUnit:"Unidad", pTarget:"Meta", pOnHand:"En mano", pPullSec:"Sacar hoy (congelador → parrillas)",
@@ -151,7 +160,20 @@ function etDate(offset){
   var y=et.getFullYear(), m=("0"+(et.getMonth()+1)).slice(-2), d=("0"+et.getDate()).slice(-2);
   return y+"-"+m+"-"+d;
 }
-var D0=etDate(0), D1=etDate(1), D2=etDate(2);
+var D0=etDate(0), D1=etDate(1), D2=etDate(2), D6=etDate(6);
+
+// ---- Batch-prep schedule (Drew, 2026-08-22): prep days are Mon / Thu / Sun.
+// On prep days the PREP tab shows a BATCH target sized to last until the next
+// prep day. On other days it shows days-of-coverage, and flags a MINI-BATCH
+// only when an item will not survive to the next prep day.
+var PREP_DOWS = {no1:[0,1,4], no2:[0,1,4]}[LOC] || [0,1,4];  // JS getDay: Sun=0 Mon=1 Thu=4
+function dowOf(ds){ var p=ds.split("-"); return new Date(p[0],p[1]-1,p[2]).getDay(); }
+function isPrepDay(){ return PREP_DOWS.indexOf(dowOf(D0))>=0; }
+function daysToNextPrep(){ // days from today (inclusive) until the NEXT prep day (exclusive)
+  var d0=dowOf(D0);
+  for(var k=1;k<=7;k++){ if(PREP_DOWS.indexOf((d0+k)%7)>=0) return k; }
+  return 1;
+}
 
 // A home-screen app can resume days later with yesterday's page in memory.
 // If the ET date has rolled over since load, force a clean reload.
@@ -179,8 +201,8 @@ function load(){
   var q = [
     api("pt_items?location=eq."+LOC+"&order=sort"),
     api("pt_learned_rates?select=*"),
-    api("pt_forecasts?location=eq."+LOC+"&date=gte."+D0+"&date=lte."+D2),
-    api("pt_daily_covers?location=eq."+LOC+"&date=gte."+D0+"&date=lte."+D2),
+    api("pt_forecasts?location=eq."+LOC+"&date=gte."+D0+"&date=lte."+D6),
+    api("pt_daily_covers?location=eq."+LOC+"&date=gte."+D0+"&date=lte."+D6),
     api("pt_daily_counts?location=eq."+LOC+"&date=eq."+D0)
   ];
   return Promise.all(q).then(function(res){
@@ -219,7 +241,8 @@ function calc(it){
   var out = {rate:r, pull:null, prep:null, thawTarget:null, prepTarget:null, linked:0, linkedMissing:0};
   if(it.fixed_par!=null){
     out.prepTarget = parseFloat(it.fixed_par);
-    out.prep = ceil0(out.prepTarget - (row.prep_on_hand||0));
+    // par items top up on prep days only; other days the kitchen manages them
+    out.prep = isPrepDay() ? ceil0(out.prepTarget - (row.prep_on_hand||0)) : null;
     return out;
   }
   if(it.station==="thaw"||it.station==="both"){
@@ -242,8 +265,28 @@ function calc(it){
     }
   }
   if((it.station==="prep"||it.station==="both") && r.rate!=null){
-    out.prepTarget = r.rate*c0/100;
-    out.prep = ceil0(out.prepTarget - (row.prep_on_hand||0));
+    var onp = row.prep_on_hand||0;
+    var h = daysToNextPrep();                       // days this batch must last
+    var mh = it.max_hold_days!=null ? parseFloat(it.max_hold_days) : null;
+    var hh = (mh>0 && mh<h) ? mh : h;               // shelf-life cap on the batch window
+    var winCovers = function(n){ var s=0; for(var k=0;k<n;k++){ s += coversFor(etDate(k))||0; } return s; };
+    out.prepTarget = r.rate*winCovers(Math.round(hh))/100;
+    if(isPrepDay()){
+      out.prep = ceil0(out.prepTarget - onp);
+      out.holdCapped = (mh>0 && mh<h);              // short-hold: will need a midweek touch
+    } else {
+      // off day: how long does what's ready last, and does it reach the next prep day?
+      var rem = onp, dcv = 0;
+      for(var k2=0;k2<7;k2++){
+        var use = r.rate*(coversFor(etDate(k2))||0)/100;
+        if(use<=0){ dcv=k2+1; continue; }
+        if(rem>=use){ rem-=use; dcv=k2+1; }
+        else { dcv = k2 + rem/use; break; }
+      }
+      out.coverageDays = dcv;
+      var gap = r.rate*winCovers(h)/100 - onp;      // need through next prep day
+      out.miniBatch = gap>1e-9 ? ceil0(gap) : 0;
+    }
   }
   return out;
 }
@@ -259,7 +302,8 @@ function render(){
   document.getElementById("tabPull").textContent = t.pull;
   document.getElementById("tabPrep").textContent = t.prep;
   document.getElementById("savebtn").textContent = t.save;
-  document.getElementById("hint").textContent = tab==="pull" ? t.hintPull : t.hintPrep;
+  document.getElementById("hint").textContent = tab==="pull" ? t.hintPull
+    : (isPrepDay() ? t.hintPrepDay : t.hintPrepOff);
   document.getElementById("langbtn").textContent = LANG==="en"?"ES":"EN";
   document.getElementById("who").placeholder = t.who;
 
@@ -295,9 +339,20 @@ function render(){
            : c.rate.kind==="seed" ? '<span class="rbadge rb-seed">'+T[LANG].seed+'</span>'
            : '<span class="rbadge rb-none">'+T[LANG].none+'</span>';
       }
-      var doN = tab==="pull"?c.pull:c.prep;
-      var doLbl = tab==="pull"?T[LANG].pullN:T[LANG].prepN;
-      var doCls = doN==null?"zero":(doN>0?"go":"zero");
+      var doN, doLbl, doCls;
+      if(tab==="pull"){
+        doN=c.pull; doLbl=T[LANG].pullN; doCls = doN==null?"zero":(doN>0?"go":"zero");
+      } else if(isPrepDay()){
+        doN=c.prep; doLbl=T[LANG].batch; doCls = doN==null?"zero":(doN>0?"go":"zero");
+        if(c.holdCapped) doLbl=T[LANG].batch+' ·'+T[LANG].holdCap;
+      } else if(c.miniBatch!=null && c.miniBatch>0){
+        doN=c.miniBatch; doLbl=T[LANG].mini; doCls="warn";
+      } else if(c.coverageDays!=null){
+        doN=(c.coverageDays>=6.95?"7+":(Math.round(c.coverageDays*10)/10)+"d");
+        doLbl=T[LANG].cdays; doCls="info";
+      } else {
+        doN=null; doLbl=T[LANG].prepN; doCls="zero";
+      }
       var tgt = tab==="pull"?c.thawTarget:c.prepTarget;
       html+='<div class="card" data-id="'+it.id+'">'+
         '<div class="namewrap"><div class="name">'+nm+' '+rb+'</div>'+
@@ -362,6 +417,7 @@ function mrow(it,i){
     mfield('Rate per 100 covers (in units)',i,'seed_rate_per_100',it.seed_rate_per_100)+
     par+
     mfield('Fixed par (ignores covers)',i,'fixed_par',it.fixed_par)+
+    mfield('Max hold (days — blank = no limit)',i,'max_hold_days',it.max_hold_days)+
     act+'</div>';
 }
 function renderManage(){
@@ -399,7 +455,8 @@ function saveItems(){
     var row = {location:e.location||LOC, name:String(e.name).trim(), name_es:e.name_es||null,
       category:e.category||null, station:e.station||'prep', unit_name:e.unit_name||'ea',
       unit_lb:numOrNull(e.unit_lb), seed_rate_per_100:numOrNull(e.seed_rate_per_100),
-      fixed_par:numOrNull(e.fixed_par), active:e.active!==false, sort:e.sort||100,
+      fixed_par:numOrNull(e.fixed_par), max_hold_days:numOrNull(e.max_hold_days),
+      active:e.active!==false, sort:e.sort||100,
       parent_id:e.parent_id||null, source:e.source||'manager'};
     if(e.id){ row.id=e.id; upserts.push(row); } else { inserts.push(row); }
   });
@@ -458,7 +515,8 @@ function doPrint(){
       var oh = mode==="pull"?row.thaw_on_hand:row.prep_on_hand;
       // manager's entered Pulled/Made ALWAYS beats the computed suggestion on paper
       var entered = mode==="pull"?row.pulled:row.prepped;
-      var act = entered!=null?entered:(mode==="pull"?c.pull:c.prep);
+      var sugg = mode==="pull"?c.pull:(c.prep!=null?c.prep:(c.miniBatch>0?c.miniBatch:null));
+      var act = entered!=null?entered:sugg;
       var mark = entered!=null?' ✓':'';
       out+='<tr><td>'+nm+'</td><td class="c">'+esc(it.unit_name)+'</td>'+
         '<td class="c">'+(tgt!=null?Math.ceil(tgt):'—')+'</td>'+
